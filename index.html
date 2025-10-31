@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LinkSaver - Video & Song Downloader</title>
+    
+    <!-- Tailwind CSS for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Lucide Icons for icons -->
+    <script src="https://unpkg.com/lucide-react@0.292.0/dist/lucide-react.js"></script>
+    <!-- We will use a script to replace icon placeholders later -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <style>
+        /* Simple fadeIn animation */
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .animate-fadeIn {
+            animation: fadeIn 0.3s ease-out forwards;
+        }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-indigo-50 via-white to-purple-50">
+
+    <div id="app-container">
+        <!-- The entire app will be rendered here by JavaScript -->
+    </div>
+
+    <!-- Main JavaScript Logic -->
+    <script>
+        // --- STATE MANAGEMENT (like React's useState) ---
+        let state = {
+            activeTab: 'home',
+            link: '',
+            loading: false,
+            videoInfo: null,
+            selectedFormat: null,
+            downloadProgress: 0,
+            isDownloading: false,
+            downloads: []
+        };
+
+        // --- STATIC DATA ---
+        const supportedPlatforms = [
+            { name: 'YouTube', color: 'bg-red-500' },
+            { name: 'Instagram', color: 'bg-pink-500' },
+            { name: 'Facebook', color: 'bg-blue-600' },
+            { name: 'Vimeo', color: 'bg-blue-400' },
+            { name: 'DailyMotion', color: 'bg-indigo-500' }
+        ];
+
+        const sampleVideos = {
+            youtube: { title: 'Amazing Nature Documentary - Wildlife & Scenery', thumbnail: 'https://images.unsplash.com/photo-1682687220742-aba13b6e50ba?w=400&h=225&fit=crop', duration: '10:45', platform: 'YouTube' },
+            instagram: { title: 'Beautiful Sunset Timelapse Video', thumbnail: 'https://images.unsplash.com/photo-1495567720989-cebdbdd97913?w=400&h=225&fit=crop', duration: '0:30', platform: 'Instagram' },
+            facebook: { title: 'Cooking Recipe Tutorial - Easy & Quick', thumbnail: 'https://images.unsplash.com/photo-1556910103-1c02745aae4d?w=400&h=225&fit=crop', duration: '5:20', platform: 'Facebook' },
+            vimeo: { title: 'Creative Motion Graphics Showreel', thumbnail: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=400&h=225&fit=crop', duration: '3:15', platform: 'Vimeo' },
+            dailymotion: { title: 'Tech Review - Latest Gadgets 2024', thumbnail: 'https://images.unsplash.com/photo-1519389950473-47ba0277781c?w=400&h=225&fit=crop', duration: '8:30', platform: 'DailyMotion' }
+        };
+        
+        const formatIcons = {
+            Music: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-music"><path d="M9 18V5l12-2v13"/><path d="M9 18a3 3 0 1 1-6 0 3 3 0 0 1 6 0z"/><path d="M21 17a3 3 0 1 1-6 0 3 3 0 0 1 6 0z"/></svg>`,
+            Video: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-video"><path d="m22 8-6 4 6 4V8Z"/><rect width="14" height="12" x="2" y="6" rx="2" ry="2"/></svg>`
+        };
+
+
+        // --- HELPER FUNCTIONS ---
+        const validateLink = (url) => {
+            const patterns = {
+                youtube: /youtube\.com|youtu\.be/,
+                instagram: /instagram\.com/,
+                facebook: /facebook\.com|fb\.watch/,
+                vimeo: /vimeo\.com/,
+                dailymotion: /dailymotion\.com|dai\.ly/
+            };
+            for (let [platform, pattern] of Object.entries(patterns)) {
+                if (pattern.test(url)) return platform;
+            }
+            return null;
+        };
+
+        const createDummyFile = (format, title, platform) => {
+            const isAudio = format.type === 'audio';
+            const mimeType = isAudio ? 'audio/mpeg' : 'video/mp4';
+            const content = `LinkSaver Downloaded File
+Title: ${title}
+Format: ${format.label}
+Quality: ${format.quality}
+Downloaded: ${new Date().toLocaleString('hi-IN')}
+Platform: ${platform}
+
+यह एक demo file है। 
+Real implementation में actual video/audio content होगा।
+`;
+            return new Blob([content], { type: mimeType });
+        };
+
+
+        // --- DOM MANIPULATION & RENDERING ---
+        function render() {
+            const appContainer = document.getElementById('app-container');
+            const { activeTab, downloads, link, loading, videoInfo, isDownloading, downloadProgress, selectedFormat } = state;
+            
+            const homeTabContent = `
+                <div class="space-y-6">
+                    <!-- Supported Platforms -->
+                    <div class="bg-white rounded-2xl shadow-md p-6">
+                        <h2 class="text-lg font-semibold text-gray-800 mb-4">✨ समर्थित प्लेटफॉर्म्स</h2>
+                        <div class="flex flex-wrap gap-2">
+                            ${supportedPlatforms.map(p => `<span class="${p.color} text-white px-4 py-2 rounded-full text-sm font-medium shadow-md">${p.name}</span>`).join('')}
+                        </div>
+                    </div>
+
+                    <!-- Link Input -->
+                    <div class="bg-white rounded-2xl shadow-md p-6">
+                        <h2 class="text-lg font-semibold text-gray-800 mb-4">🔗 वीडियो/सॉन्ग लिंक पेस्ट करें</h2>
+                        <div class="relative">
+                            <input id="link-input" type="text" value="${link}" placeholder="https://www.youtube.com/watch?v=..."
+                                class="w-full px-4 py-4 pr-12 border-2 border-gray-200 rounded-xl focus:border-indigo-500 focus:outline-none text-sm" />
+                            ${link ? '<button id="clear-link-btn" class="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-xl">✕</button>' : ''}
+                        </div>
+                        <button id="fetch-info-btn" ${loading || !link ? 'disabled' : ''} class="w-full mt-4 bg-gradient-to-r from-indigo-600 to-purple-600 text-white py-4 rounded-xl font-semibold hover:shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2">
+                            ${loading ? 
+                                `<div class="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div> प्रोसेस हो रहा है...` :
+                                `<i data-lucide="check-circle" class="w-5 h-5"></i> लिंक वेरिफाई करें`
+                            }
+                        </button>
+                        <div class="mt-4 bg-blue-50 border-l-4 border-blue-500 p-4 rounded-lg">
+                            <div class="flex gap-2">
+                                <i data-lucide="alert-circle" class="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5"></i>
+                                <div class="text-sm text-blue-800">
+                                    <strong>नोट:</strong> यह एक demo app है। Real video download के लिए backend server की जरूरत होगी।
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Video Info & Download Section -->
+                    <div id="video-info-container">
+                        ${videoInfo && !isDownloading ? `
+                            <div class="bg-white rounded-2xl shadow-md p-6 space-y-6 animate-fadeIn">
+                                <h2 class="text-lg font-semibold text-gray-800">📺 वीडियो प्रीव्यू</h2>
+                                <div class="relative">
+                                    <img src="${videoInfo.thumbnail}" alt="Thumbnail" class="w-full h-48 rounded-xl object-cover" />
+                                    <div class="absolute inset-0 bg-black bg-opacity-30 rounded-xl flex items-center justify-center">
+                                        <div class="bg-white bg-opacity-90 rounded-full p-4"><i data-lucide="play" class="w-8 h-8 text-indigo-600"></i></div>
+                                    </div>
+                                    <div class="absolute bottom-3 right-3 bg-black bg-opacity-70 text-white px-3 py-1 rounded-lg text-sm font-medium">${videoInfo.duration}</div>
+                                </div>
+                                <div>
+                                    <h3 class="font-semibold text-gray-800 text-lg">${videoInfo.title}</h3>
+                                    <p class="text-sm text-gray-500 mt-1">Platform: ${videoInfo.platform}</p>
+                                </div>
+                                <div>
+                                    <h3 class="font-semibold text-gray-800 mb-3">🎬 फॉर्मेट चुनें</h3>
+                                    <div class="space-y-2">
+                                        ${videoInfo.formats.map((format, i) => `
+                                            <button data-format-label="${format.label}" class="format-btn w-full flex items-center justify-between p-4 rounded-xl border-2 transition-all ${selectedFormat?.label === format.label ? 'border-indigo-500 bg-indigo-50 shadow-md' : 'border-gray-200 hover:border-indigo-300 hover:shadow'}">
+                                                <div class="flex items-center gap-3">
+                                                    <div class="p-2 rounded-lg ${selectedFormat?.label === format.label ? 'bg-indigo-100' : 'bg-gray-100'}">
+                                                        <div class="w-5 h-5 ${selectedFormat?.label === format.label ? 'text-indigo-600' : 'text-gray-500'}">${format.iconName === 'Music' ? formatIcons.Music : formatIcons.Video}</div>
+                                                    </div>
+                                                    <div class="text-left">
+                                                        <div class="font-semibold text-gray-800">${format.label}</div>
+                                                        <div class="text-sm text-gray-500">Size: ${format.size}</div>
+                                                    </div>
+                                                </div>
+                                                ${selectedFormat?.label === format.label ? '<i data-lucide="check-circle" class="w-6 h-6 text-indigo-600"></i>' : ''}
+                                            </button>
+                                        `).join('')}
+                                    </div>
+                                </div>
+                                <button id="download-btn" ${!selectedFormat ? 'disabled' : ''} class="w-full bg-gradient-to-r from-green-600 to-emerald-600 text-white py-4 rounded-xl font-semibold hover:shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2">
+                                    <i data-lucide="download" class="w-5 h-5"></i> डाउनलोड करें
+                                </button>
+                            </div>
+                        ` : ''}
+                        ${isDownloading ? `
+                            <div class="bg-white rounded-2xl shadow-md p-6 space-y-4 animate-fadeIn">
+                                <h2 class="text-lg font-semibold text-gray-800 text-center">📥 डाउनलोड हो रहा है...</h2>
+                                <div class="space-y-2">
+                                    <div class="flex justify-between text-sm text-gray-600">
+                                        <span>${videoInfo?.title?.substring(0, 40)}...</span>
+                                        <span class="font-semibold">${downloadProgress}%</span>
+                                    </div>
+                                    <div class="w-full bg-gray-200 rounded-full h-3 overflow-hidden">
+                                        <div class="bg-gradient-to-r from-indigo-600 to-purple-600 h-full rounded-full transition-all duration-300 ease-out" style="width: ${downloadProgress}%"></div>
+                                    </div>
+                                    <p class="text-xs text-gray-500 text-center mt-3">कृपया प्रतीक्षा करें... File download हो रही है</p>
+                                </div>
+                            </div>
+                        ` : ''}
+                    </div>
+                    
+                    <!-- Features -->
+                    <div class="grid grid-cols-2 gap-4">
+                        <div class="bg-gradient-to-br from-blue-50 to-blue-100 p-4 rounded-xl border border-blue-200"><div class="text-3xl mb-2">⚡</div><h3 class="font-semibold text-gray-800 text-sm">तेज़ डाउनलोड</h3><p class="text-xs text-gray-600 mt-1">सेकंड्स में डाउनलोड</p></div>
+                        <div class="bg-gradient-to-br from-purple-50 to-purple-100 p-4 rounded-xl border border-purple-200"><div class="text-3xl mb-2">🎵</div><h3 class="font-semibold text-gray-800 text-sm">मल्टी-फॉर्मेट</h3><p class="text-xs text-gray-600 mt-1">MP3, MP4, HD Quality</p></div>
+                        <div class="bg-gradient-to-br from-green-50 to-green-100 p-4 rounded-xl border border-green-200"><div class="text-3xl mb-2">🔒</div><h3 class="font-semibold text-gray-800 text-sm">सुरक्षित</h3><p class="text-xs text-gray-600 mt-1">100% सिक्योर</p></div>
+                        <div class="bg-gradient-to-br from-orange-50 to-orange-100 p-4 rounded-xl border border-orange-200"><div class="text-3xl mb-2">💾</div><h3 class="font-semibold text-gray-800 text-sm">Auto Save</h3><p class="text-xs text-gray-600 mt-1">Direct file save</p></div>
+                    </div>
+                </div>
+            `;
+
+            const downloadsTabContent = `
+                <div class="space-y-4">
+                    <div class="bg-white rounded-2xl shadow-md p-6">
+                        <div class="flex items-center justify-between mb-4">
+                            <h2 class="text-lg font-semibold text-gray-800">📂 My Downloads</h2>
+                            ${downloads.length > 0 ? `<span class="bg-indigo-100 text-indigo-700 px-3 py-1 rounded-full text-sm font-medium">${downloads.length} files</span>` : ''}
+                        </div>
+                        ${downloads.length === 0 ? `
+                            <div class="text-center py-12">
+                                <i data-lucide="file-video" class="w-16 h-16 text-gray-300 mx-auto mb-4"></i>
+                                <p class="text-gray-500 font-medium">कोई डाउनलोड नहीं है</p>
+                                <p class="text-sm text-gray-400 mt-2">डाउनलोड करने के लिए होम पर जाएं</p>
+                                <button id="go-home-btn" class="mt-4 bg-indigo-600 text-white px-6 py-2 rounded-lg hover:bg-indigo-700 transition-colors">होम पर जाएं</button>
+                            </div>
+                        ` : `
+                            <div class="space-y-3">
+                                ${downloads.map(d => `
+                                    <div class="flex gap-4 p-4 bg-gradient-to-r from-gray-50 to-gray-100 rounded-xl hover:shadow-md transition-all border border-gray-200">
+                                        <div class="relative flex-shrink-0">
+                                            <img src="${d.thumbnail}" alt="Thumbnail" class="w-28 h-20 rounded-lg object-cover" />
+                                            <div class="absolute inset-0 bg-black bg-opacity-20 rounded-lg flex items-center justify-center">
+                                                <i data-lucide="${d.type === 'audio' ? 'file-audio' : 'file-video'}" class="w-8 h-8 text-white"></i>
+                                            </div>
+                                        </div>
+                                        <div class="flex-1 min-w-0">
+                                            <h3 class="font-semibold text-gray-800 text-sm line-clamp-2 mb-1">${d.title}</h3>
+                                            <div class="flex flex-wrap gap-2 text-xs text-gray-500">
+                                                <span class="bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded">${d.platform}</span>
+                                                <span>${d.format}</span><span>•</span><span>${d.size}</span>
+                                            </div>
+                                            <p class="text-xs text-gray-400 mt-1">📅 ${d.date}</p>
+                                        </div>
+                                        <div class="flex flex-col gap-2">
+                                            <button class="share-btn p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" data-download-id="${d.id}" title="Share"><i data-lucide="share-2" class="w-5 h-5"></i></button>
+                                            <button class="delete-btn p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors" data-download-id="${d.id}" title="Delete"><i data-lucide="trash-2" class="w-5 h-5"></i></button>
+                                        </div>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        `}
+                    </div>
+                </div>
+            `;
+            
+            appContainer.innerHTML = `
+                <div class="bg-gradient-to-r from-indigo-600 to-purple-600 text-white p-6 shadow-lg">
+                    <div class="max-w-4xl mx-auto"><div class="flex items-center justify-between">
+                        <div>
+                            <div class="flex items-center gap-3 mb-2"><i data-lucide="download" class="w-8 h-8"></i><h1 class="text-2xl font-bold">LinkSaver</h1></div>
+                            <p class="text-indigo-100 text-sm">Video & Song Downloader</p>
+                        </div>
+                        <div class="text-right"><div class="text-2xl font-bold">${downloads.length}</div><div class="text-xs text-indigo-200">Downloads</div></div>
+                    </div></div>
+                </div>
+                <div class="max-w-4xl mx-auto p-4 pb-24">
+                    ${activeTab === 'home' ? homeTabContent : downloadsTabContent}
+                </div>
+                <div class="fixed bottom-0 left-0 right-0 bg-white border-t shadow-lg">
+                    <div class="max-w-4xl mx-auto flex">
+                        <button id="nav-home" class="flex-1 flex flex-col items-center gap-1 py-3 transition-colors ${activeTab === 'home' ? 'text-indigo-600 bg-indigo-50' : 'text-gray-400'}">
+                            <i data-lucide="download" class="w-6 h-6"></i><span class="text-xs font-medium">होम</span>
+                        </button>
+                        <button id="nav-downloads" class="flex-1 flex flex-col items-center gap-1 py-3 transition-colors relative ${activeTab === 'downloads' ? 'text-indigo-600 bg-indigo-50' : 'text-gray-400'}">
+                            <i data-lucide="file-video" class="w-6 h-6"></i><span class="text-xs font-medium">डाउनलोड्स</span>
+                            ${downloads.length > 0 ? `<span class="absolute top-1 right-1/4 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center font-bold">${downloads.length}</span>` : ''}
+                        </button>
+                    </div>
+                </div>
+            `;
+            
+            // Re-render icons and attach event listeners
+            lucide.createIcons();
+            attachEventListeners();
+        }
+        
+        // --- EVENT HANDLING ---
+        function attachEventListeners() {
+            // Tab Navigation
+            document.getElementById('nav-home')?.addEventListener('click', () => { state.activeTab = 'home'; render(); });
+            document.getElementById('nav-downloads')?.addEventListener('click', () => { state.activeTab = 'downloads'; render(); });
+
+            // Home Tab
+            const linkInput = document.getElementById('link-input');
+            if(linkInput) {
+                linkInput.addEventListener('input', (e) => { state.link = e.target.value; render(); });
+                linkInput.addEventListener('keypress', (e) => e.key === 'Enter' && handleFetchInfo());
+            }
+
+            document.getElementById('clear-link-btn')?.addEventListener('click', () => { state.link = ''; render(); });
+            document.getElementById('fetch-info-btn')?.addEventListener('click', handleFetchInfo);
+            document.getElementById('download-btn')?.addEventListener('click', handleDownload);
+            
+            document.querySelectorAll('.format-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const label = btn.getAttribute('data-format-label');
+                    state.selectedFormat = state.videoInfo.formats.find(f => f.label === label);
+                    render();
+                });
+            });
+
+            // Downloads Tab
+            document.getElementById('go-home-btn')?.addEventListener('click', () => { state.activeTab = 'home'; render(); });
+            document.querySelectorAll('.delete-btn').forEach(btn => btn.addEventListener('click', (e) => deleteDownload(e.currentTarget.dataset.downloadId)));
+            document.querySelectorAll('.share-btn').forEach(btn => btn.addEventListener('click', (e) => shareDownload(e.currentTarget.dataset.downloadId)));
+        }
+
+        function handleFetchInfo() {
+            if (!state.link.trim()) {
+                alert('⚠️ कृपया एक लिंक पेस्ट करें');
+                return;
+            }
+            const platform = validateLink(state.link);
+            if (!platform) {
+                alert('❌ यह लिंक समर्थित नहीं है। कृपया YouTube, Instagram, Facebook, Vimeo या DailyMotion लिंक का उपयोग करें।');
+                return;
+            }
+            
+            state.loading = true;
+            render();
+
+            setTimeout(() => {
+                const videoData = sampleVideos[platform];
+                state.videoInfo = {
+                    ...videoData, url: state.link,
+                    formats: [
+                        { type: 'audio', label: 'MP3 - Audio Only', size: '5.2 MB', iconName: 'Music', quality: 'audio', ext: 'mp3' },
+                        { type: 'video', label: 'MP4 - 360p', size: '25 MB', iconName: 'Video', quality: '360p', ext: 'mp4' },
+                        { type: 'video', label: 'MP4 - 720p HD', size: '45 MB', iconName: 'Video', quality: '720p', ext: 'mp4' },
+                        { type: 'video', label: 'MP4 - 1080p Full HD', size: '95 MB', iconName: 'Video', quality: '1080p', ext: 'mp4' }
+                    ]
+                };
+                state.loading = false;
+                render();
+            }, 1500);
+        }
+
+        function handleDownload() {
+            if (!state.selectedFormat) {
+                alert('⚠️ कृपया एक फॉर्मेट चुनें');
+                return;
+            }
+
+            state.isDownloading = true;
+            state.downloadProgress = 0;
+            render();
+
+            const interval = setInterval(() => {
+                state.downloadProgress = Math.min(100, state.downloadProgress + 10);
+                render();
+                if (state.downloadProgress >= 100) clearInterval(interval);
+            }, 200);
+
+            setTimeout(() => {
+                const blob = createDummyFile(state.selectedFormat, state.videoInfo.title, state.videoInfo.platform);
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `${state.videoInfo.title.substring(0, 30)}_${state.selectedFormat.quality}.${state.selectedFormat.ext}`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                window.URL.revokeObjectURL(url);
+                
+                const newDownload = {
+                    id: Date.now(), title: state.videoInfo.title, thumbnail: state.videoInfo.thumbnail,
+                    format: state.selectedFormat.label, size: state.selectedFormat.size,
+                    date: new Date().toLocaleString('hi-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }),
+                    platform: state.videoInfo.platform, quality: state.selectedFormat.quality, type: state.selectedFormat.type
+                };
+
+                state.downloads = [newDownload, ...state.downloads];
+                state.isDownloading = false;
+                state.downloadProgress = 0;
+                state.videoInfo = null;
+                state.selectedFormat = null;
+                state.link = '';
+                
+                setTimeout(() => {
+                    alert('✅ डाउनलोड सफल! File आपके Downloads folder में save हो गई है।');
+                    state.activeTab = 'downloads';
+                    render();
+                }, 300);
+            }, 2000);
+        }
+
+        function deleteDownload(id) {
+            if (confirm('क्या आप इस file को delete करना चाहते हैं?')) {
+                state.downloads = state.downloads.filter(d => d.id != id);
+                render();
+            }
+        }
+
+        function shareDownload(id) {
+            const download = state.downloads.find(d => d.id == id);
+            if (navigator.share) {
+                navigator.share({ title: download.title, text: `Check out this ${download.type}: ${download.title}` }).catch(() => {});
+            } else {
+                alert('📤 Share फीचर आपके browser में available नहीं है।');
+            }
+        }
+
+
+        // --- INITIAL RENDER ---
+        document.addEventListener('DOMContentLoaded', render);
+    </script>
+
+</body>
+</html>
